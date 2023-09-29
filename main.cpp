@@ -9,9 +9,17 @@
 #include <fstream>
 
 enum class ParseOutput {
-    Error = 0,
-    ShortOption = 2,
-    LongOption = 1,
+    Error,
+    LongOption,
+    ShortOption
+
+};
+
+enum class OptionStatus {
+    WrongOption,
+    Error,
+    LongOption,
+    ShortOption
 };
 
 struct Options {
@@ -27,58 +35,75 @@ struct SeparatedData {
     bool flag = false;
 };
 
-bool GetOptions(int argc, char* argv[], Options* arguments);
-void ReadFile(Options* arguments);
-int CountLinesByDelimiter(Options* arguments);
-SeparatedData SplitLongArgument(const std::string& str);
-ParseOutput ParseInfo(const std::string& argv_first, const std::string& argv_second, Options* arguments);
-int CheckParsedInfo(const std::string& argv_first, const std::string& argv_second, Options* arguments);
-int LinesOption(const std::string& argv_first, const std::string& argv_second, Options* arguments);
-int TailOption(const std::string& argv_first, Options* arguments);
-int DelimiterOption(const std::string& argv_first, const std::string& argv_second, Options* arguments);
 
-int main(int argc, char* argv[]) {
-    Options arguments;
-    if (GetOptions(argc, argv, &arguments)) {
-        ReadFile(&arguments);
+
+OptionStatus LinesOption(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
+    try {
+        if (argv_first == "-l") {
+            if (argv_second[0] == '-') {
+                std::cerr << std::endl << "expected num after lines (-l) option" << std::endl;
+                return OptionStatus::Error;
+            }
+            arguments->line_options = std::stoi(argv_second);
+            return OptionStatus::ShortOption;
+        }
+        else if (argv_first == "--lines") {
+            arguments->line_options = std::stoi(argv_second);
+            return OptionStatus::LongOption;
+        }
+    } catch (...) {
+        std::cerr << std::endl << "expected num after lines (-l) option" << std::endl;
+        return OptionStatus::Error;
     }
-    return EXIT_SUCCESS;
+    return OptionStatus::WrongOption;
+
 }
 
-void ReadFile(Options* arguments) {
-    char c;
-    int all_lines = CountLinesByDelimiter (arguments);
-    arguments->file.seekg(0);
-    while (arguments->file.peek() != EOF) {
-        if ((!arguments->tail_options && arguments->line_options == -1) || (arguments->line_options >= all_lines)) {
-            arguments->file.get(c);
-            std::cout << c;
-        }
-        else if (!arguments->tail_options && arguments->line_options > 0) {
-            arguments->file.get(c);
-            if (c == arguments->delimiter_options){
-                arguments->line_options--;
-            }
-            if (arguments->line_options > 0) std::cout << c;;
-        }
-        else if (arguments->tail_options) {
-            arguments->file.get(c);
-            if (c == arguments->delimiter_options && all_lines>arguments->line_options){
-                all_lines--;
-            }
-            else if (all_lines == arguments->line_options) {
-
-                if (c == arguments->delimiter_options){
-                    arguments->line_options--;
-                }
-                if (arguments->line_options > 0) std::cout << c;;
-            }
-        }
-        else break;
-
+OptionStatus TailOption(const std::string& argv_first, Options* arguments) {
+    if (argv_first == "-t" || argv_first == "--tail") {
+        arguments->tail_options = true;
+        return OptionStatus::LongOption;
     }
+    return OptionStatus::WrongOption;
+}
 
-}//Считывает файл и выводит данные в соответствие с написанными параметрами
+OptionStatus DelimiterOption(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
+    if (argv_first == "-d" || argv_first == "--delimiter")
+        if (argv_second[0] == '-') {
+            std::cerr << std::endl << "Expected char in format: 'your char'" << std::endl;
+            return OptionStatus::Error;
+        }
+        else if (argv_second[1]== '\\' && argv_second.length() == 4) {
+            try {
+                char temp = argv_second[2];
+                switch (argv_second[2]){
+                    case 'n': temp = '\n'; break;
+                    case 't': temp = '\t'; break;
+                    case 'v': temp = '\v'; break;
+                    case 'b': temp = '\b'; break;
+                    case 'r': temp = '\r'; break;
+                    case 'a': temp = '\a'; break;
+                    case '\\': temp = '\\'; break;
+                }
+
+                if (argv_first == "-d") {
+                    arguments->delimiter_options = temp;
+                    return OptionStatus::ShortOption;
+                }
+                else if (argv_first == "--delimiter") {
+                    arguments->delimiter_options = temp;
+                    return OptionStatus::LongOption;
+                }
+            } catch(...) {
+                std::cerr << std::endl << "Expected char after delimiter (-d) option in format: '\\any char' eg. \\n \\a etc << std::endl";
+                return OptionStatus::Error;
+            }
+        } else {
+            std::cerr << std::endl << "Expected char after delimiter (-d) option in format: '\\any char' eg. \\n \\a etc << std::endl";
+            return OptionStatus::Error;
+        }
+    return OptionStatus::WrongOption;
+}
 
 int CountLinesByDelimiter(Options* arguments) {
     char c;
@@ -90,6 +115,77 @@ int CountLinesByDelimiter(Options* arguments) {
         }
     }
     return counter + 1;
+}
+
+
+SeparatedData SplitLongArgument(const std::string& str) {
+    SeparatedData result;
+    bool flag = false;
+    for (int i = 0; i<str.length(); ++i) {
+        if (str[i] == '=') {
+            if (!flag) {
+                result.flag=true;
+                flag = true;
+                ++i;
+            } else {
+                result.flag = false;
+                std::cerr<< "\nPls wrile options in one of this ways:\n-option value\n--option=value\n";
+                return result;
+            }
+        }
+        if (flag) {
+            result.value += str[i];
+        } else {
+            result.option += str[i];
+        }
+    }
+    return result;
+}
+
+OptionStatus CheckParsedInfo(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
+    OptionStatus line_check = LinesOption(argv_first, argv_second, arguments);
+    OptionStatus tail_check = TailOption(argv_first, arguments);
+    OptionStatus deli_check = DelimiterOption(argv_first, argv_second, arguments);
+    if (line_check == OptionStatus::Error || deli_check == OptionStatus::Error) {
+        return OptionStatus::Error;
+    }
+    else if (line_check == OptionStatus::LongOption || tail_check == OptionStatus::LongOption || deli_check == OptionStatus::LongOption) {
+        return OptionStatus::LongOption;
+    }
+    else if (line_check == OptionStatus::ShortOption || deli_check == OptionStatus::ShortOption) {
+        return OptionStatus::ShortOption;
+    }
+    else if (line_check == OptionStatus::WrongOption && tail_check == OptionStatus::WrongOption && deli_check == OptionStatus::WrongOption) {
+        return OptionStatus::WrongOption;
+    }
+    else {
+        return OptionStatus::Error;
+    }
+}
+
+ParseOutput ParseInfo(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
+    switch (CheckParsedInfo(argv_first, argv_second, arguments)) {
+        case OptionStatus::Error: return ParseOutput::Error;
+        case OptionStatus::LongOption: return ParseOutput::LongOption;
+        case OptionStatus::ShortOption: return ParseOutput::ShortOption;
+        case OptionStatus::WrongOption: {
+            SeparatedData result = SplitLongArgument(argv_first);
+            OptionStatus temp;
+            if (result.flag) {
+                temp = CheckParsedInfo(result.option, result.value, arguments);
+            }
+            switch (temp) {
+                case OptionStatus::Error: return ParseOutput::Error;
+                case OptionStatus::LongOption: return ParseOutput::LongOption;
+                case OptionStatus::ShortOption: return ParseOutput::ShortOption;
+                default:{
+                    std::cerr << std::endl << "Choose one of the following available options\n-l num\n--lines=num\n-t\n--tail\n-d '\\char'\n--delimiter='\\char'" << std::endl;
+                    return ParseOutput::Error;
+                }
+            }
+        }
+    }
+    return ParseOutput::Error;
 }
 
 bool GetOptions(int argc, char* argv[], Options* arguments) {
@@ -111,7 +207,7 @@ bool GetOptions(int argc, char* argv[], Options* arguments) {
         if (i+1 <= argc-1) {
             ParseOutput temp = ParseInfo(argv[i], argv[i+1], arguments);
             if (temp == ParseOutput::ShortOption) {
-                i++;
+                ++i;
                 continue;
             }
             else if (temp == ParseOutput::Error) {
@@ -121,149 +217,56 @@ bool GetOptions(int argc, char* argv[], Options* arguments) {
     }
 
     return true;
-}//Проверка всех написанных опций
-
-SeparatedData SplitLongArgument(const std::string& str) {
-    SeparatedData result;
-    bool flag = false;
-    for (int i = 0; i<str.length(); i++) {
-        if (str[i] == '=') {
-            if (!flag) {
-                result.flag=true;
-                flag = true;
-                i++;
-            } else {
-                result.flag = false;
-                std::cerr<< "\nPls wrile options in one of this ways:\n-option value\n--option=value\n";
-                return result;
-            }
-        }
-        if (flag) {
-            result.value += str[i];
-        }
-        else {
-            result.option += str[i];
-        }
-    }
-    return result;
-} //Разбиение данных типа --lines=50 на два значение (--lines и 50)
-
-ParseOutput ParseInfo(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
-    switch (CheckParsedInfo(argv_first, argv_second, arguments)) {
-        case 0: return ParseOutput::Error;
-        case 1: return ParseOutput::LongOption;
-        case 2:return ParseOutput::ShortOption;
-        case -1: {
-            SeparatedData result = SplitLongArgument(argv_first);
-            int temp;
-            if (result.flag) {
-                temp = CheckParsedInfo(result.option, result.value, arguments);
-            }
-            switch (temp) {
-                case 0: return ParseOutput::Error;
-                case 1: return ParseOutput::LongOption;
-                case 2:return ParseOutput::ShortOption;
-                default:{
-                    std::cerr << std::endl << "Choose one of the following available options\n-l num\n--lines=num\n-t\n--tail\n-d '\\char'\n--delimiter='\\char'" << std::endl;
-                    return ParseOutput::Error;
-                }
-            }
-        }
-    }
-    return ParseOutput::Error;
-}//Парсинг инфы
-
-int CheckParsedInfo(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
-    int line_check = LinesOption(argv_first, argv_second, arguments);
-    int tail_check = TailOption(argv_first, arguments);
-    int deli_check = DelimiterOption(argv_first, argv_second, arguments);
-    if (line_check == 0 || deli_check == 0) {
-        return 0;
-    }
-    else if (line_check == 1 || tail_check == 1 || deli_check == 1) {
-        return 1;
-    }
-    else if (line_check == 2 || deli_check == 2) {
-        return 2;
-    }
-    else if (line_check == -1 && tail_check == -1 && deli_check == -1) {
-        return -1;
-    }
-    else {
-        return 0;
-    }
-}//Проверка распарсенных ключей
-
-int LinesOption(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
-    try {
-        if (argv_first == "-l") {
-            if (argv_second[0] == '-') {
-                std::cerr << std::endl << "expected num after lines (-l) option" << std::endl;
-                return 0;
-            }
-            arguments->line_options = std::stoi(argv_second);
-            return 2;
-        }
-        else if (argv_first == "--lines") {
-            arguments->line_options = std::stoi(argv_second);
-            return 1;
-        }
-    } catch (...) {
-        std::cerr << std::endl << "expected num after lines (-l) option" << std::endl;
-        return 0;
-    }
-    return -1;
-
-} //Проверка на корректность ввода данных для опции -l
-
-int TailOption(const std::string& argv_first, Options* arguments) {
-    if (argv_first == "-t" || argv_first == "--tail") {
-        arguments->tail_options = true;
-        return 1;
-    }
-    return -1;
-}//Проверка на корректность ввода данных для опции -t
-
-int DelimiterOption(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
-    if (argv_first == "-d" || argv_first == "--delimiter")
-        if (argv_second[0] == '-') {
-            std::cerr << std::endl << "Expected char in format: 'your char'" << std::endl;
-            return 0;
-        }
-        else if (argv_second[1]== '\\' && argv_second.length() == 4) {
-            try {
-                char temp = argv_second[2];
-                switch (argv_second[2]){
-                    case 'n': temp = '\n'; break;
-                    case 't': temp = '\t'; break;
-                    case 'v': temp = '\v'; break;
-                    case 'b': temp = '\b'; break;
-                    case 'r': temp = '\r'; break;
-                    case 'a': temp = '\a'; break;
-                    case '\\': temp = '\\'; break;
-                }
-
-                if (argv_first == "-d") {
-                    arguments->delimiter_options = temp;
-                    return 2;
-                }
-                else if (argv_first == "--delimiter") {
-                    arguments->delimiter_options = temp;
-                    return 1;
-                }
-            } catch(...) {
-                std::cerr << std::endl << "Expected char after delimiter (-d) option in format: '\\any char' eg. \\n \\a etc << std::endl";
-                return 0;
-            }
-        }
-        else {
-            std::cerr << std::endl << "Expected char after delimiter (-d) option in format: '\\any char' eg. \\n \\a etc << std::endl";
-            return 0;
-        }
-    return -1;
 }
 
-//Проверка на корректность ввода данных для опции -d
+void ReadFile(Options* arguments) {
+    char c;
+    int all_lines = CountLinesByDelimiter (arguments);
+    arguments->file.seekg(0);
+    while (arguments->file.peek() != EOF) {
+        if ((!arguments->tail_options && arguments->line_options == -1) || (arguments->line_options >= all_lines)) {
+            arguments->file.get(c);
+            std::cout << c;
+        }
+        else if (!arguments->tail_options && arguments->line_options > 0) {
+            arguments->file.get(c);
+            if (c == arguments->delimiter_options){
+                --arguments->line_options;
+            }
+            if (arguments->line_options > 0) {
+                std::cout << c;;
+            }
+        }
+        else if (arguments->tail_options) {
+            arguments->file.get(c);
+            if (c == arguments->delimiter_options && all_lines>arguments->line_options){
+                --all_lines;
+            }
+            else if (all_lines == arguments->line_options) {
+
+                if (c == arguments->delimiter_options){
+                    --arguments->line_options;
+                }
+                if (arguments->line_options > 0) {
+                    std::cout << c;;
+                }
+            }
+        }
+        else break;
+
+    }
+
+}
+
+
+
+int main(int argc, char* argv[]) {
+    Options arguments;
+    if (GetOptions(argc, argv, &arguments)) {
+        ReadFile(&arguments);
+    }
+    return EXIT_SUCCESS;
+}
 
 
 
