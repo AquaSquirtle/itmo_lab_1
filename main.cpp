@@ -35,28 +35,31 @@ struct SeparatedData {
     bool flag = false;
 };
 
-
-
-OptionStatus LinesOption(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
+bool CanBeNum (std::string str, Options* arguments){
     try {
-        if (argv_first == "-l") {
-            if (argv_second[0] == '-') {
-                std::cerr << std::endl << "expected num after lines (-l) option" << std::endl;
-                return OptionStatus::Error;
-            }
-            arguments->line_options = std::stoi(argv_second);
-            return OptionStatus::ShortOption;
-        }
-        else if (argv_first == "--lines") {
-            arguments->line_options = std::stoi(argv_second);
-            return OptionStatus::LongOption;
-        }
+        arguments->line_options = std::stoi(str);
+        return true;
     } catch (...) {
         std::cerr << std::endl << "expected num after lines (-l) option" << std::endl;
+        return false;
+    }
+}
+
+OptionStatus LinesOption(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
+    if (argv_first != "-l" && argv_second != "--lines"){
+        return OptionStatus::WrongOption;
+    }
+    if (CanBeNum(argv_second, arguments)){
+        if (argv_first == "-l") {
+            return OptionStatus::ShortOption;
+        }
+        if (argv_first == "--lines"){
+            return OptionStatus::LongOption;
+        }
+    } else {
         return OptionStatus::Error;
     }
     return OptionStatus::WrongOption;
-
 }
 
 OptionStatus TailOption(const std::string& argv_first, Options* arguments) {
@@ -68,42 +71,50 @@ OptionStatus TailOption(const std::string& argv_first, Options* arguments) {
 }
 
 OptionStatus DelimiterOption(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
-    if (argv_first == "-d" || argv_first == "--delimiter")
-        if (argv_second[0] == '-') {
-            std::cerr << std::endl << "Expected char in format: 'your char'" << std::endl;
-            return OptionStatus::Error;
+    if (argv_first != "-d" && argv_first != "--delimiter") {
+        return OptionStatus::WrongOption;
+    }
+    if ((argv_second[1]== '\\' && argv_second.length() == 4) && argv_second[0] != '-') {
+        char temp = argv_second[2];
+        switch (argv_second[2]) {
+            case 'n':
+                temp = '\n';
+                break;
+            case 't':
+                temp = '\t';
+                break;
+            case 'v':
+                temp = '\v';
+                break;
+            case 'b':
+                temp = '\b';
+                break;
+            case 'r':
+                temp = '\r';
+                break;
+            case 'a':
+                temp = '\a';
+                break;
+            case '\\':
+                temp = '\\';
+                break;
         }
-        else if (argv_second[1]== '\\' && argv_second.length() == 4) {
-            try {
-                char temp = argv_second[2];
-                switch (argv_second[2]){
-                    case 'n': temp = '\n'; break;
-                    case 't': temp = '\t'; break;
-                    case 'v': temp = '\v'; break;
-                    case 'b': temp = '\b'; break;
-                    case 'r': temp = '\r'; break;
-                    case 'a': temp = '\a'; break;
-                    case '\\': temp = '\\'; break;
-                }
-
-                if (argv_first == "-d") {
-                    arguments->delimiter_options = temp;
-                    return OptionStatus::ShortOption;
-                }
-                else if (argv_first == "--delimiter") {
-                    arguments->delimiter_options = temp;
-                    return OptionStatus::LongOption;
-                }
-            } catch(...) {
-                std::cerr << std::endl << "Expected char after delimiter (-d) option in format: '\\any char' eg. \\n \\a etc << std::endl";
-                return OptionStatus::Error;
-            }
-        } else {
-            std::cerr << std::endl << "Expected char after delimiter (-d) option in format: '\\any char' eg. \\n \\a etc << std::endl";
-            return OptionStatus::Error;
+        if (argv_first == "-d") {
+            arguments->delimiter_options = temp;
+            return OptionStatus::ShortOption;
         }
-    return OptionStatus::WrongOption;
+        if (argv_first == "--delimiter") {
+            arguments->delimiter_options = temp;
+            return OptionStatus::LongOption;
+        }
+    }
+    else {
+        std::cerr << std::endl << "Expected char after delimiter (-d) option in format: '\\any char' eg. \\n \\a etc << std::endl";
+        return OptionStatus::Error;
+    }
+    return OptionStatus::Error;
 }
+
 
 int CountLinesByDelimiter(Options* arguments) {
     char c;
@@ -149,18 +160,16 @@ OptionStatus CheckParsedInfo(const std::string& argv_first, const std::string& a
     if (line_check == OptionStatus::Error || deli_check == OptionStatus::Error) {
         return OptionStatus::Error;
     }
-    else if (line_check == OptionStatus::LongOption || tail_check == OptionStatus::LongOption || deli_check == OptionStatus::LongOption) {
+    if (line_check == OptionStatus::LongOption || tail_check == OptionStatus::LongOption || deli_check == OptionStatus::LongOption) {
         return OptionStatus::LongOption;
     }
-    else if (line_check == OptionStatus::ShortOption || deli_check == OptionStatus::ShortOption) {
+    if (line_check == OptionStatus::ShortOption || deli_check == OptionStatus::ShortOption) {
         return OptionStatus::ShortOption;
     }
-    else if (line_check == OptionStatus::WrongOption && tail_check == OptionStatus::WrongOption && deli_check == OptionStatus::WrongOption) {
+    if (line_check == OptionStatus::WrongOption && tail_check == OptionStatus::WrongOption && deli_check == OptionStatus::WrongOption) {
         return OptionStatus::WrongOption;
     }
-    else {
-        return OptionStatus::Error;
-    }
+    return OptionStatus::Error;
 }
 
 ParseOutput ParseInfo(const std::string& argv_first, const std::string& argv_second, Options* arguments) {
@@ -258,8 +267,6 @@ void ReadFile(Options* arguments) {
 
 }
 
-
-
 int main(int argc, char* argv[]) {
     Options arguments;
     if (GetOptions(argc, argv, &arguments)) {
@@ -267,6 +274,3 @@ int main(int argc, char* argv[]) {
     }
     return EXIT_SUCCESS;
 }
-
-
-
